@@ -1,0 +1,576 @@
+---
+title: "Heart Attack"
+author: "Gary Rustandi"
+date: '2022-07-01'
+output:
+  md_document:
+    variant: markdown_github
+  github_document: default
+---
+
+```{r setup, include=F}
+knitr::opts_chunk$set(echo = T, warning = F, message = F, cache = T,
+                      dpi = 600, 
+                      fig.width = 10, fig.height = 6, fig.align = "center")
+```
+
+```{css, echo = F}
+h1 { color: rgb(62, 6, 148); }
+h2 { color: rgb(0, 104, 139); } 
+h3 { color: rgb(51, 122, 183); }
+
+body {font-family:  -apple-system, BlinkMacSystemFont, 
+                    "Segoe UI", Roboto, Ubuntu;
+      font-size: 12pt; }
+
+code { color: rgb(205,79,57) }
+
+.tocify-extend-page {height: 0 !important; }
+```
+
+## Project
+  
+## 1. Business Question
+
+> `Problem Statement`
+
+*	This is an analysis to predict whether a patient has a `high risk of heart disease` based on the variables available.
+
+* This prediction analysis is very important for insurance industry to know the condition of the patient before signing the insurance contract and for health care industry to detect as early as possible whether the patient is at risk of heart disease.
+
+> We start by activating all of our packages.
+
+```{r}
+# Load necessary packages
+pacman::p_load(tidyverse, lubridate, tidymodels, skimr, GGally, ggstatsplot,
+               usemodels, janitor, doParallel,ggthemes, ggthemr, plotly, vip,
+               shiny, shinydashboard, DT, caret,jtools, interactions,huxtable,
+               Hmisc, broom, ggstatsplot, glue)
+```
+
+## 2. Import {.tabset}
+
+### 2.1. Variables in the Dataset 
+
+Variable (Feature) Name    | Description
+:--------------------------|:--------------------------------------------------------------------
+age                        | Age of the person
+sex                        | Sex of the person (1, 0)
+cp                         | Chest Pain Type (1,2,3,4)
+trtbps                     | Resting blood pressure (in mmHg)
+chol                       | cholesterol (in mmHg)
+fbs                        | fasting blood sugar >120 mg/dl (1 = True, 0 = False)
+restecg                    | resting electrocardiography results (0, 1, 2)
+thalachh                   | maximum heart rate achieved
+exng                       | Exercise induced angina (1 = Yes, 0 = No)
+oldpeak                    | Previous peak
+slp                        | slope (0,1,2)
+caa                        | number of major vessels (0,1,2,3)
+thall                      | thal rate
+output                     | The risk of heart attack (1 = Yes, 0 = No)
+
+### 2.2. Data Source
+
+> Data was originally sourced from [Kaggle](https://www.kaggle.com/rashikrahmanpritom/heart-attack-analysis-prediction-dataset)
+
+>Importing the data
+
+```{r}
+heart <- read_csv("heart.csv") 
+```
+
+
+## 3. Transform & EDA
+
+
+### 3.1. Exploratory Data Analysis
+> We start by exploring our data using glimpse and skim
+
+```{r}
+glimpse(heart)
+```
+
+```{r}
+skim(heart)
+```
+
+```{r Counting the count of our output variable}
+heart %>% 
+  count(output)
+```
+
+> Observation:
+
+* There are total 14 variables. We want to predict the column "output"
+* We don't have any missing value
+* All columns in <dbl> format. But some of the variables are categorical variable so that we need to convert it into factor later
+* The negative output is 138 and the positive output is 165. It is quite balance so that we don't need downsampling here. Simple stratified should be just fine
+* The mean and SD for numeric predictors need to be normalized.
+* caa and thall have little value on some categories, we want to try out to combine several columns in the variable in one of our recipe.
+
+### 3.2. Transforming Data 
+
+```{r Preparing for Recipe 2}
+heart <- heart %>% 
+  mutate(thall_2 = thall, caa_2 = caa) 
+
+heart$thall_2 <- replace(heart$thall_2, heart$thall_2<1, 1)
+heart$caa_2 <- replace(heart$caa_2, heart$caa_2>2,2)
+```
+
+```{r Changing categorical variables to factor & Setting reference variable}
+heart <- heart %>% 
+  complete() %>% 
+  dplyr::mutate_all(as.factor) %>% 
+  mutate(across(c(age,trtbps,chol,thalachh,oldpeak),as.numeric),
+         output = forcats::fct_relevel(output,"1"))
+
+```
+
+```{r Checking again with skim and glimpse}
+# The goals are to find out whether the variables are already set into the correct class
+# and whether the mutate for thall and caa is well done.
+skim(heart)
+```
+
+```{r}
+glimpse(heart)
+```
+
+### 3.3. Exploring Relationship Among Variables
+
+> We would like to see the relationships among numeric variables
+
+```{r Correlation Matrix}
+heart %>% 
+  ggcorrmat(colors = c("red",
+                       "white",
+                       "green"))
+```
+
+> From the correlation matrix, it seems that there is no significant correlation among variables.
+> We also can see the patterns among numerical variables using ggpair()
+
+```{r ggpair for numerical variables}
+ggthemr("fresh")
+heart %>% 
+  select(output, where(is.numeric)) %>% 
+  ggpairs()
+```
+
+> From the ggpair, we don't see any unique relationship among variables so we can proceed to the next step.
+> Now, we start to observing relationship among categorical variables and output.
+
+```{r}
+heart %>% 
+  ggbarstats(x = sex, y = output)
+```
+
+```{r}
+heart %>% 
+  ggbarstats(x = cp, y = output)
+```
+```{r}
+heart %>% 
+  ggbarstats(x = fbs, y = output)
+```
+
+```{r}
+heart %>% 
+  ggbarstats(x = restecg, y = output)
+```
+
+```{r}
+heart %>% 
+  ggbarstats(x = exng, y = output)
+```
+```{r}
+heart %>% 
+  ggbarstats(x = slp, y = output)
+```
+```{r}
+heart %>% 
+  ggbarstats(x = caa, y = output)
+```
+
+```{r}
+heart %>% 
+  ggbarstats(x = thall, y = output)
+```
+
+## 4. Predictive Modelling
+
+> After taking a glance in our data, we start with the predictive modelling.
+
+### 4.1. Split
+
+```{r Splitting data}
+set.seed(210725)
+heart_split <- heart %>% 
+  initial_split(prop = .75,
+                strata = "output")
+
+class(heart_split)
+
+heart_training <- heart_split %>%  training()
+heart_testing <- heart_split %>%  testing()
+```
+> Splitting here is pretty straightforward. We split the data into two parts, training and testing data. We use stratified sampling for output in order to get the balance output per category of output (0 or 1).
+
+### 4.2. Pre-Process
+
+> Feature engineering of the data.
+
+```{r Recipe}
+recipe1 <- recipe(output~age+sex+cp+thalachh+exng,
+                  data = heart_training) %>% 
+  step_center(all_numeric_predictors()) %>% 
+  step_scale(all_numeric_predictors()) 
+
+
+recipe2 <- recipe(output~., data = heart_training) %>%
+  step_rm(caa,thall, restecg, fbs) %>% 
+  step_normalize(all_numeric_predictors())
+
+```
+> Recipe one is basically the trial.
+> Recipe two is based on first thorough analysis of the data
+
+### 4.3. Fit
+
+> We choose `random forest` (trees = 1000) to run all of our models.
+
+```{r Fitting}
+RF_model <- rand_forest() %>% 
+  set_args(mtry = tune(),
+           trees =1000) %>% 
+  set_engine("ranger",
+             importance = "impurity") %>%
+  set_mode("classification")
+```
+
+### 4.4. Tuning
+
+#### `Workflow`
+```{r Workflow}
+RF_workflow_1<- workflows::workflow() %>% 
+  add_recipe(recipe1) %>% 
+  add_model(RF_model)
+
+RF_workflow_2 <- workflows::workflow() %>% 
+  add_recipe(recipe2) %>% 
+  add_model(RF_model) 
+```
+
+#### `Cross-Validation`
+```{r Cross Validation}
+set.seed(210725)
+heartcv10 <- vfold_cv(heart_training, 10)
+```
+
+#### `Parallel Processing 1`
+
+```{r Parallel Processing Recipe 1}
+doParallel::registerDoParallel()
+
+set.seed(210725)
+heart_tuned_1 <- RF_workflow_1 %>% 
+  tune_grid(resamples = heartcv10,
+            grid = 10)
+```
+
+#### `Parallel Processing 2`
+
+```{r Parallel Processing Recipe 2}
+set.seed(210725)
+heart_tuned_2 <- RF_workflow_2%>% 
+  tune_grid(resamples = heartcv10, 
+            grid = 10)
+```
+
+#### `Collect Metrics`
+
+```{r Collect Metrics}
+heart_tuned_results_1 <- heart_tuned_1 %>% 
+  collect_metrics() 
+heart_tuned_results_2 <- heart_tuned_2 %>%
+  collect_metrics()
+```
+
+#### `Selecting Best Metrics`
+
+```{r Select Best Metric based on roc_auc}
+parameters_heart_tuned_1 <- heart_tuned_1%>% 
+  select_best(metric = "roc_auc")
+parameters_heart_tuned_2 <- heart_tuned_2 %>%
+  select_best(metric = "roc_auc")
+```
+
+#### `Finalize Workflow`
+
+```{r Finalize Workflow}
+finalized_workflow_heart_1 <- RF_workflow_1 %>%
+  finalize_workflow(parameters_heart_tuned_1)
+finalized_workflow_heart_2 <- RF_workflow_2 %>%
+  finalize_workflow(parameters_heart_tuned_2)
+```
+
+#### `Last Fit`
+
+```{r Last Fit}
+fit_heart_1 <- finalized_workflow_heart_1 %>% 
+  last_fit(heart_split) 
+fit_heart_2 <- finalized_workflow_heart_2 %>% 
+  last_fit(heart_split) 
+```
+
+### 4.5. Assess
+
+> We would like to assess the model by the `metrics` (roc_auc, accuracy, f_meas, precision, recall). 
+> The model is visualized by `confusion matrix` and `roc_auc curve`, compared with based model.
+> Lastly, we also assess the `variable importance` of each model.
+
+#### `Collecting Metrics and Predictions`
+
+```{r Collecting metrics and prediction}
+performance_heart_1 <- fit_heart_1 %>% collect_metrics()
+predictions_heart_1 <- fit_heart_1 %>% collect_predictions()
+performance_heart_2 <- fit_heart_2 %>% collect_metrics()
+predictions_heart_2 <- fit_heart_2 %>% collect_predictions()
+```
+
+#### `Confusion Matrix`
+
+```{r Confusion Matrix 1}
+predictions_heart_1 %>% 
+  conf_mat(truth = output, 
+           estimate = .pred_class) %>% 
+  pluck(1) %>% 
+  as_tibble() %>%
+  mutate(cm_colors = ifelse(Truth == 1 & Prediction == 1, "True Positive",
+                            ifelse(Truth == 1 & Prediction == 0, "False Negative",
+                                   ifelse(Truth == 0 & Prediction == 1, "False Positive",
+                                          "True Negative")))) %>% 
+  ggplot(aes(x = Prediction, y = Truth)) + 
+  geom_tile(aes(fill = cm_colors)) +
+  scale_fill_manual(values = c("True Positive" = "green3",
+                               "True Negative" = "green1",
+                               "False Positive" = "tomato3",
+                               "False Negative" = "tomato1")) + 
+  geom_text(aes(label = n), color = "white", size = 10) + 
+  geom_label(aes(label = cm_colors), vjust = 2) +
+  labs(title = "Confusion Matrix Model 1") +
+  ggthemes::theme_fivethirtyeight() + 
+  theme(axis.title = element_text(),
+        legend.position = "none")
+```
+
+```{r Confusion Matrix 2}
+predictions_heart_2 %>% 
+  conf_mat(truth = output, 
+           estimate = .pred_class) %>% 
+  pluck(1) %>% 
+  as_tibble() %>%
+  mutate(cm_colors = ifelse(Truth == 1 & Prediction == 1, "True Positive",
+                            ifelse(Truth == 1 & Prediction == 0, "False Negative",
+                                   ifelse(Truth == 0 & Prediction == 1, "False Positive",
+                                          "True Negative")))) %>% 
+  ggplot(aes(x = Prediction, y = Truth)) + 
+  geom_tile(aes(fill = cm_colors)) +
+  scale_fill_manual(values = c("True Positive" = "green3",
+                               "True Negative" = "green1",
+                               "False Positive" = "tomato3",
+                               "False Negative" = "tomato1")) + 
+  geom_text(aes(label = n), color = "white", size = 10) + 
+  geom_label(aes(label = cm_colors), vjust = 2) +
+  labs(title = "Confusion Matrix Model 2") +
+  ggthemes::theme_fivethirtyeight() + 
+  theme(axis.title = element_text(),
+        legend.position = "none")
+```
+
+#### `Roc_Auc Model`
+
+> Creating `Null Model`
+
+```{r}
+baseline_model <- null_model() %>%
+  set_engine("parsnip") %>%
+  set_mode("classification")
+
+baseline_workflow_1 <- workflow() %>%
+  add_recipe(recipe1) %>%
+  add_model(baseline_model) %>%
+  fit_resamples(heartcv10,
+                control = control_resamples(save_pred = T)
+  )
+
+performance_BASELINE_1 <- baseline_workflow_1 %>% collect_metrics()
+predictions_BASELINE_1 <- baseline_workflow_1 %>% collect_predictions()
+```
+
+> Adding algorithm columns for each model and combining it.
+
+```{r}
+predictions_heart_1 <- predictions_heart_1 %>% 
+  mutate(algorithm = "RF 1")
+
+predictions_heart_2 <- predictions_heart_2 %>% 
+  mutate(algorithm = "RF 2")
+
+predictions_BASELINE_1  <- predictions_BASELINE_1 %>% 
+  mutate(algorithm = "NULL Model")
+
+comparing_predictions_1 <- bind_rows(predictions_heart_1, predictions_heart_2,
+                                   predictions_BASELINE_1)
+
+```
+
+> Creating `roc_auc curve` to see the performance of each model.
+
+```{r}
+comparing_predictions_1 %>%
+  group_by(algorithm) %>%
+  roc_curve(truth = output, 
+            .pred_1) %>%
+  autoplot() +
+  ggthemes::scale_color_fivethirtyeight() +
+  labs(title = "Comparions of Predictive Power\nbetween Random Forest & NULL Model\nin in Predicting Heart Attack on Patients",
+       subtitle = "Random Forest\nPerforms Better in Prediction",
+       x = "Sensitivity (Recall)",
+       y = "1 - Specificity (False Positive Rate)",
+       color = "Prediction Tools") +
+  theme(legend.position = c(.65, .25))
+```
+
+> Model 2 is **much better** than Model 1.
+
+
+#### `Metrics`
+
+> Finding the metrics and comparing both model.
+
+```{r Metrics}
+accuracy_1 <- predictions_heart_1 %>%
+  metrics(output, .pred_class) %>%
+  select(-.estimator) %>%
+  filter(.metric == "accuracy") %>% 
+  rename(accuracy = .estimate)
+
+roc_auc_1 <- performance_heart_1[2,3] %>% 
+  rename(roc_auc = .estimate)
+
+Fmeas_1 <- predictions_heart_1 %>%
+  f_meas(output, .pred_class) %>%
+  select(-.estimator) %>% 
+  rename(F_Measure = .estimate)
+
+
+Result_1 <- tibble(accuracy_1[,2],
+                   roc_auc_1[,1],
+                   Fmeas_1[,2],
+                   "precision" = yardstick::precision(predictions_heart_1, output, .pred_class) %>%
+                     select(.estimate),
+                   "recall" = yardstick::recall(predictions_heart_1, output, .pred_class) %>%
+                     select(.estimate)
+) 
+
+accuracy_2 <- predictions_heart_2 %>%
+  metrics(output, .pred_class) %>%
+  select(-.estimator) %>%
+  filter(.metric == "accuracy") %>% 
+  rename(accuracy = .estimate)
+
+roc_auc_2 <- performance_heart_2[2,3] %>% 
+  rename(roc_auc = .estimate)
+
+Fmeas_2 <- predictions_heart_2 %>%
+  f_meas(output, .pred_class) %>%
+  select(-.estimator) %>% 
+  rename(F_Measure = .estimate)
+
+
+Result_2 <- tibble(accuracy_2[,2],
+                   roc_auc_2[,1],
+                   Fmeas_2[,2],
+                   "precision" = yardstick::precision(predictions_heart_2, output, .pred_class) %>%
+                     select(.estimate),
+                   "recall" = yardstick::recall(predictions_heart_2, output, .pred_class) %>%
+                     select(.estimate)
+) 
+Result_summary <- bind_rows(round(Result_1, digits = 2), round(Result_2, digits = 2)) %>% 
+  datatable()
+
+Result_summary
+```
+
+> **Model 2 is better than Model 1** ! This is proving the significance of variable caa and thall in improving the performance of the model.
+
+#### `Variable Importance`
+
+```{r Variable Importance Model 1}
+finalized_model_1 <- finalized_workflow_heart_1 %>% fit(heart)
+
+model_summary_1 <- pull_workflow_fit(finalized_model_1)$fit
+model_summary_1
+
+feature_importance_1 <- data.frame(importance = model_summary_1$variable.importance) %>% 
+  rownames_to_column("feature") %>% 
+  as_tibble() %>% 
+  mutate(feature = as.factor(feature))
+
+feature_importance_1 %>% 
+  ggplot(aes(x = importance, y = reorder(feature, importance), fill = importance)) +
+  geom_col(show.legend = F) +
+  scale_fill_gradient(low = "deepskyblue1", high = "deepskyblue4") +
+  scale_x_continuous(expand = c(0, 0)) +
+  labs(
+    y = NULL,
+    title = "Feature (Variable) Importance Model 1",
+    subtitle = "cp is the most important variable") + 
+  ggthemes::theme_fivethirtyeight()
+```
+
+```{r Variable Importance Model 2}
+finalized_model_2 <- finalized_workflow_heart_2 %>% fit(heart)
+
+model_summary_2 <- pull_workflow_fit(finalized_model_2)$fit
+model_summary_2
+
+feature_importance_2 <- data.frame(importance = model_summary_2$variable.importance) %>% 
+  rownames_to_column("feature") %>% 
+  as_tibble() %>% 
+  mutate(feature = as.factor(feature))
+
+feature_importance_2 %>% 
+  ggplot(aes(x = importance, y = reorder(feature, importance), fill = importance)) +
+  geom_col(show.legend = F) +
+  scale_fill_gradient(low = "deepskyblue1", high = "deepskyblue4") +
+  scale_x_continuous(expand = c(0, 0)) +
+  labs(
+    y = NULL,
+    title = "Feature (Variable) Importance Model 2",
+    subtitle = "cp is still the most important variable") + 
+  ggthemes::theme_fivethirtyeight()
+```
+ 
+## 5. Executive Summary
+
+> The executive summaries are divided into 3 parts: evidence, interpretation, and recommendations.
+
+### 5.1. Evidence
+
+> Model 2 has higher prediction power than Model 1 as can be seen in the metrics, roc_auc curve and confusion matrix. Model 1 and 2 are better than null model as can be seen in the roc_auc curve. Model 2 has 84% accuracy, 95% roc_auc, 87% F-measure, 81% precision, and 93% recall. We found that cp, thall, caa, oldpeak, thalachh have more significant importance for predicting heart attack risk.
+
+### 5.2. Interpretation
+
+> Chest pain (cp) is the most direct and important variable to predict heart attack risk. When a patient have chest pain type 1-3, the patient will have high risk of heart attack. Thal rate (thal) is the second important variable to predict heart attack risk. Type 2 of thal rate has higher risk on heart attack. Number of major vessels (caa) is the third important variable to predict heart attack risk. When a patient don't have any caa (caa = 0), the patient will have higher risk to get heart attack.
+
+### 5.3. Recommendations
+
+> Using this prediction model, insurance company can make more accuracy prediction of heart attack on applicant. When applying for insurance the company should especially require the applicant to have a medical check up to check applicant's chest pain (cp), thall rate (thall), caa (number of major vessels), previous peak (oldpeak), maximum heart rate achieved (thalachh). With this predictive modelling, the insurance company can do price adjustment for premium of different customers, thus improving their benefits.
+
+
+## Limitations
+
+> For Recipe 1 we just put the variables without taking many considerations. We create thorough analysis for the Recipe 2 in order to achieve highest possible result. This model can be improved further by observing interactions among variables.
