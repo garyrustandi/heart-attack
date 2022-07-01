@@ -1,6 +1,6 @@
 # Classification with R: Heart Attack Prediction
 
-Check out this link to the ![project](https://htmlpreview.github.io/?https://github.com/garyrustandi/heart-attack/blob/main/index.html)
+Check out this link to the ![project](https://htmlpreview.github.io/?https://github.com/garyrustandi/heart-attack/blob/main/Heart-Attack.html)
 
 Heart attack is one of the deadliest disease in the world. It would be great for patients, insurance companies, and doctors if we can predict the chance of getting heart attack.
 The goal of this project is to predict whether someone will get heart disease or not based on the characteristics today.
